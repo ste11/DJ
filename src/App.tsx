@@ -171,7 +171,7 @@ export default function App() {
   // Play / Pause Toggle
   const handlePlayPauseToggle = useCallback(async (deckId: DeckId) => {
     const deck = deckId === 'A' ? deckARef.current : deckBRef.current;
-    if (!deck.track) return;
+    if (!deck || !deck.track) return;
 
     if (deck.isPlaying) {
       audioEngine.pauseDeck(deckId);
@@ -193,7 +193,7 @@ export default function App() {
   // Cue Press & Release
   const handleCueDown = useCallback((deckId: DeckId) => {
     const deck = deckId === 'A' ? deckARef.current : deckBRef.current;
-    if (!deck.track) return;
+    if (!deck || !deck.track) return;
 
     // If already playing, jump to cue 0 and hold
     audioEngine.seekDeck(deckId, deck.track, 0, true);
@@ -206,7 +206,7 @@ export default function App() {
 
   const handleCueUp = useCallback((deckId: DeckId) => {
     const deck = deckId === 'A' ? deckARef.current : deckBRef.current;
-    if (!deck.isCuePressed) return;
+    if (!deck || !deck.isCuePressed) return;
 
     audioEngine.pauseDeck(deckId);
     if (deck.track) {
@@ -224,10 +224,10 @@ export default function App() {
     const targetDeck = deckId === 'A' ? deckBRef.current : deckARef.current;
     const currentDeck = deckId === 'A' ? deckARef.current : deckBRef.current;
 
-    if (!targetDeck.track || !currentDeck.track) return;
+    if (!targetDeck?.track || !currentDeck?.track) return;
 
-    const targetBpm = targetDeck.effectiveBpm;
-    const baseBpm = currentDeck.track.bpm;
+    const targetBpm = targetDeck.effectiveBpm || targetDeck.track.bpm || 128;
+    const baseBpm = currentDeck.track.bpm || 128;
     const newPitch = ((targetBpm - baseBpm) / baseBpm) * 100;
     const clampedPitch = Math.max(-16, Math.min(16, newPitch));
     const rate = 1 + clampedPitch / 100;
@@ -495,13 +495,13 @@ export default function App() {
   }, []);
 
   const handleUploadCustomTrack = useCallback(async (file: File): Promise<Track> => {
-    const { buffer, duration } = await audioEngine.loadCustomAudioFile(file);
+    const { buffer, duration, bpm } = await audioEngine.loadCustomAudioFile(file);
     const id = `custom-${Date.now()}`;
     const newTrack: Track = {
       id,
       title: file.name.replace(/\.[^/.]+$/, ''),
       artist: 'File Locale',
-      bpm: 128,
+      bpm: bpm || 128,
       key: '12A',
       duration,
       color: '#38bdf8',
@@ -510,7 +510,7 @@ export default function App() {
     };
 
     audioEngine.registerCustomTrackBuffer(id, buffer);
-    setTrackCatalog((prev) => [newTrack, ...prev]);
+    setTrackCatalog((prev) => [newTrack, ...prev.filter((t) => t.id !== id)]);
     return newTrack;
   }, []);
 

@@ -1190,15 +1190,156 @@ class DjAudioEngine {
     }
   }
 
-  // Load custom audio file from device storage
-  public async loadCustomAudioFile(file: File): Promise<{ buffer: AudioBuffer; duration: number }> {
+  // Universal File to ArrayBuffer reader compatible with all mobile and desktop browsers
+  private readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
+    return new Promise((resolve, reject) => {
+      // First try standard FileReader which is 100% reliable on all Android/iOS/Desktop browsers
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result instanceof ArrayBuffer) {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Formato buffer non valido'));
+        }
+      };
+      reader.onerror = () => {
+        // Fallback to file.arrayBuffer() if available
+        if (typeof file.arrayBuffer === 'function') {
+          file.arrayBuffer().then(resolve).catch(reject);
+        } else {
+          reject(reader.error || new Error('Impossibile leggere il file dal disco'));
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  // Load custom audio file from device storage with universal MP3, M4A, AAC, WAV, FLAC, OGG decoding
+  public async loadCustomAudioFile(file: File): Promise<{ buffer: AudioBuffer; duration: number; bpm: number }> {
+    // Ensure audio context exists and attempt resume non-blockingly
     const ctx = this.getAudioContext();
-    const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    const rawArrayBuffer = await this.readFileAsArrayBuffer(file);
+
+    let audioBuffer: AudioBuffer | null = null;
+
+    // Strategy 1: Standard async Promise ctx.decodeAudioData
+    try {
+      audioBuffer = await ctx.decodeAudioData(rawArrayBuffer.slice(0));
+    } catch {
+      audioBuffer = null;
+    }
+
+    // Strategy 2: OfflineAudioContext (completely independent of user-gesture/hardware audio context state)
+    if (!audioBuffer) {
+      try {
+        const OfflineContextClass =
+          window.OfflineAudioContext ||
+          (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+        if (OfflineContextClass) {
+          const offlineCtx = new OfflineContextClass(2, 44100 * 2, 44100);
+          audioBuffer = await offlineCtx.decodeAudioData(rawArrayBuffer.slice(0));
+        }
+      } catch {
+        audioBuffer = null;
+      }
+    }
+
+    // Strategy 3: Legacy Callback-based decodeAudioData for older mobile engines
+    if (!audioBuffer) {
+      try {
+        audioBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
+          ctx.decodeAudioData(
+            rawArrayBuffer.slice(0),
+            (decoded) => resolve(decoded),
+            (err) => reject(err || new Error('Decode error'))
+          );
+        });
+      } catch {
+        audioBuffer = null;
+      }
+    }
+
+    // Strategy 4: OfflineAudioContext at 48000Hz (native hardware sample rate on many Android devices)
+    if (!audioBuffer) {
+      try {
+        const OfflineContextClass =
+          window.OfflineAudioContext ||
+          (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+        if (OfflineContextClass) {
+          const offlineCtx = new OfflineContextClass(2, 48000 * 2, 48000);
+          audioBuffer = await offlineCtx.decodeAudioData(rawArrayBuffer.slice(0));
+        }
+      } catch {
+        audioBuffer = null;
+      }
+    }
+
+    if (!audioBuffer || audioBuffer.length === 0) {
+      throw new Error('Impossibile decodificare il file audio. Assicurati che sia un file audio valido.');
+    }
+
+    // Detect approximate BPM from transients or fallback to 128
+    let detectedBpm = 128;
+    try {
+      detectedBpm = this.estimateBpmFromBuffer(audioBuffer);
+    } catch {
+      detectedBpm = 128;
+    }
+
     return {
       buffer: audioBuffer,
-      duration: audioBuffer.duration,
+      duration: Math.round(audioBuffer.duration) || 120,
+      bpm: detectedBpm || 128,
     };
+  }
+
+  // Fast BPM estimator from energy peaks
+  private estimateBpmFromBuffer(buffer: AudioBuffer): number {
+    const channelData = buffer.getChannelData(0);
+    const sampleRate = buffer.sampleRate;
+    // Inspect first 30 seconds
+    const maxSamples = Math.min(channelData.length, sampleRate * 30);
+    const step = Math.floor(sampleRate / 100); // 10ms intervals
+    const energy: number[] = [];
+    
+    for (let i = 0; i < maxSamples; i += step) {
+      let sum = 0;
+      for (let j = 0; j < step && i + j < maxSamples; j++) {
+        sum += Math.abs(channelData[i + j]);
+      }
+      energy.push(sum / step);
+    }
+
+    // Peak thresholding
+    let avgEnergy = energy.reduce((a, b) => a + b, 0) / (energy.length || 1);
+    let peakIndices: number[] = [];
+    for (let i = 1; i < energy.length - 1; i++) {
+      if (energy[i] > avgEnergy * 1.5 && energy[i] > energy[i - 1] && energy[i] > energy[i + 1]) {
+        peakIndices.push(i);
+      }
+    }
+
+    if (peakIndices.length >= 4) {
+      const intervals: number[] = [];
+      for (let i = 1; i < peakIndices.length; i++) {
+        const intervalSec = (peakIndices[i] - peakIndices[i - 1]) * 0.01;
+        if (intervalSec > 0.3 && intervalSec < 1.0) {
+          intervals.push(intervalSec);
+        }
+      }
+      if (intervals.length > 0) {
+        const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+        let bpm = Math.round(60 / avgInterval);
+        while (bpm < 85) bpm *= 2;
+        while (bpm > 175) bpm = Math.round(bpm / 2);
+        return bpm;
+      }
+    }
+    return 128;
   }
 
   public registerCustomTrackBuffer(trackId: string, buffer: AudioBuffer) {
@@ -1213,6 +1354,9 @@ class DjAudioEngine {
   public async playDeck(deckId: DeckId, track: Track, startOffset?: number): Promise<void> {
     await this.init();
     const ctx = this.getAudioContext();
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
     const deck = deckId === 'A' ? this.deckA : this.deckB;
 
     if (deck.isPlaying) return;

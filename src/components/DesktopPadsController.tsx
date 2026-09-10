@@ -204,7 +204,7 @@ export const DesktopPadsController: React.FC<DesktopPadsControllerProps> = ({
         type="file"
         ref={fileInputRef}
         onChange={handleCustomAudioUpload}
-        accept="audio/*"
+        accept="audio/*,audio/mp4,audio/m4a,audio/x-m4a,audio/aac,audio/mpeg,audio/wav,audio/ogg,audio/flac,.m4a,.aac,.mp3,.wav,.ogg,.flac,.opus,.mp4,*/*"
         className="hidden"
       />
 

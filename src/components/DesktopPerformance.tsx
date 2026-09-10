@@ -70,13 +70,17 @@ export const DesktopPerformance: React.FC<DesktopPerformanceProps> = ({
     onTapTempo(deckId);
   };
 
-  const renderDeckChannel = (deck: DeckState, color: string) => {
+  const renderDeckChannel = (deck: DeckState | undefined, color: string) => {
+    if (!deck) return null;
     const isDeckA = deck.id === 'A';
     const isPflActive = isDeckA ? pflA : pflB;
     const track = deck.track;
+    const isPlaying = !!deck.isPlaying;
+    const currentTime = deck.currentTime || 0;
+    const effectiveBpm = deck.effectiveBpm || (track?.bpm || 128);
 
     // Progress percentage
-    const progressPercent = track && track.duration > 0 ? (deck.currentTime / track.duration) * 100 : 0;
+    const progressPercent = track && track.duration > 0 ? (currentTime / track.duration) * 100 : 0;
 
     return (
       <div
@@ -334,14 +338,14 @@ export const DesktopPerformance: React.FC<DesktopPerformanceProps> = ({
               onPlayPauseToggle(deck.id);
             }}
             className={`flex flex-col items-center justify-center rounded-xl border font-black text-sm uppercase tracking-wider transition-all select-none active:scale-95 ${
-              deck.isPlaying
+              isPlaying
                 ? 'bg-emerald-500 text-zinc-950 border-emerald-300 shadow-[0_0_14px_rgba(16,185,129,0.9)]'
                 : 'bg-zinc-800/90 hover:bg-zinc-700 text-emerald-400 border-emerald-500/40 shadow-inner'
             }`}
             style={{ minHeight: '52px' }}
           >
-            {deck.isPlaying ? <Pause className="w-4 h-4 mb-0.5" /> : <Play className="w-4 h-4 mb-0.5 fill-current" />}
-            <span>{deck.isPlaying ? 'PAUSE' : 'PLAY'}</span>
+            {isPlaying ? <Pause className="w-4 h-4 mb-0.5" /> : <Play className="w-4 h-4 mb-0.5 fill-current" />}
+            <span>{isPlaying ? 'PAUSE' : 'PLAY'}</span>
           </button>
         </div>
       </div>

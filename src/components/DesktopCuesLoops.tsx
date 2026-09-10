@@ -34,7 +34,28 @@ export const DesktopCuesLoops: React.FC<DesktopCuesLoopsProps> = ({
   const [customSampleName, setCustomSampleName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const currentDeck = selectedDeck === 'A' ? deckA : deckB;
+  const currentDeck = (selectedDeck === 'A' ? deckA : deckB) || {
+    id: selectedDeck,
+    track: null,
+    isPlaying: false,
+    currentTime: 0,
+    pitchPercent: 0,
+    effectiveBpm: 128,
+    volume: 1,
+    eqLow: 0,
+    eqMid: 0,
+    eqHigh: 0,
+    filter: 0,
+    isKeyLock: true,
+    isSlipMode: false,
+    isSync: false,
+    isCuePressed: false,
+    hotCues: [],
+    isLooping: false,
+    loopLengthBeats: 4,
+    loopStart: 0,
+    loopEnd: 0,
+  };
 
   const defaultPads: SamplerPad[] = [
     { id: 1, name: 'AIRHORN', color: '#ef4444', type: 'airhorn', isPlaying: false },
@@ -98,7 +119,7 @@ export const DesktopCuesLoops: React.FC<DesktopCuesLoopsProps> = ({
         type="file"
         ref={fileInputRef}
         onChange={handleCustomAudioUpload}
-        accept="audio/*"
+        accept="audio/*,audio/mp4,audio/m4a,audio/x-m4a,audio/aac,audio/mpeg,audio/wav,audio/ogg,audio/flac,.m4a,.aac,.mp3,.wav,.ogg,.flac,.opus,.mp4,*/*"
         className="hidden"
       />
 
